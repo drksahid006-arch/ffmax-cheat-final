@@ -9,6 +9,30 @@ workflows:
       - name: Create Android Project Files
         script: |
           mkdir -p app/src/main/java/com/panel/ffmax
+          mkdir -p app/src/main/jni
+          
+          # --- CMakeLists for Native Injector ---
+          cat << 'EOF' > app/src/main/jni/CMakeLists.txt
+          cmake_minimum_required(VERSION 3.22.1)
+          project(cheat CXX)
+          add_library(cheat SHARED injector.cpp)
+          target_link_libraries(cheat log android dl)
+          EOF
+
+          # --- Native Injector Core ---
+          cat << 'EOF' > app/src/main/jni/injector.cpp
+          #include <jni.h>
+          #include <unistd.h>
+          #include <sys/ptrace.h>
+          #include <android/log.h>
+          #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "FFMX", __VA_ARGS__)
+          extern "C" JNIEXPORT jint JNICALL Java_com_panel_ffmax_MainActivity_inject(JNIEnv* env, jobject thiz, jstring pkg) {
+              LOGI("Injector loaded and ready");
+              return 0;
+          }
+          EOF
+
+          # --- Gradle Config ---
           cat << 'EOF' > build.gradle
           buildscript {
               repositories { google(); mavenCentral() }
@@ -29,9 +53,14 @@ workflows:
                   applicationId "com.panel.ffmax"
                   minSdk 24
                   targetSdk 33 
+                  ndk { abiFilters 'arm64-v8a' }
+                  externalNativeBuild { cmake { arguments '-DANDROID_STL=c++_shared' } }
               } 
+              externalNativeBuild { cmake { path 'src/main/jni/CMakeLists.txt' } }
           }
           EOF
+
+          # --- Manifest & Java ---
           cat << 'EOF' > app/src/main/AndroidManifest.xml
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
@@ -51,11 +80,13 @@ workflows:
           import android.os.Bundle;
           import android.widget.TextView;
           public class MainActivity extends Activity {
+              static { System.loadLibrary("cheat"); }
+              public native int inject(String pkg);
               @Override
               protected void onCreate(Bundle savedInstanceState) {
                   super.onCreate(savedInstanceState);
                   TextView text = new TextView(this);
-                  text.setText("Panel Base Loaded!");
+                  text.setText("C++ Engine Loaded!");
                   setContentView(text);
               }
           }
