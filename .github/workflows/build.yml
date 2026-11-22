@@ -68,10 +68,18 @@ jobs:
           
       - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: '17' }
-      - uses: android-actions/setup-android@v3
-      - run: sdkmanager --install "ndk;25.2.9519653" "cmake;3.22.1"
-      - run: gradle assembleDebug
       
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'tools platform-tools build-tools;33.0.1 platforms;android-33'
+          
+      - name: Accept Licenses and Build
+        run: |
+          yes | sdkmanager --licenses || true
+          chmod +x gradlew || true
+          gradle assembleDebug
+          
       - uses: actions/upload-artifact@v4
         with:
           name: app-debug
