@@ -12,7 +12,7 @@ jobs:
           cat << 'EOF' > build.gradle
           buildscript {
               repositories { google(); mavenCentral() }
-              dependencies { classpath 'com.android.tools.build:gradle:8.1.4' }
+              dependencies { classpath 'com.android.tools.build:gradle:8.2.0' }
           }
           allprojects { repositories { google(); mavenCentral() } }
           EOF
@@ -22,7 +22,11 @@ jobs:
           EOF
           cat << 'EOF' > app/build.gradle
           plugins { id 'com.android.application' }
-          android { namespace 'com.panel.ffmax'; compileSdk 33; defaultConfig { applicationId "com.panel.ffmax"; minSdk 24; targetSdk 33 } }
+          android { 
+              namespace 'com.panel.ffmax'
+              compileSdk 33
+              defaultConfig { applicationId "com.panel.ffmax"; minSdk 24; targetSdk 33 } 
+          }
           EOF
           cat << 'EOF' > app/src/main/AndroidManifest.xml
           <?xml version="1.0" encoding="utf-8"?>
@@ -42,9 +46,9 @@ jobs:
         run: |
           export ANDROID_HOME=/usr/local/lib/android/sdk
           export ANDROID_SDK_ROOT=/usr/local/lib/android/sdk
-          wget -q https://services.gradle.org/distributions/gradle-8.1.1-bin.zip
-          unzip -q gradle-8.1.1-bin.zip
-          export PATH=$PATH:$PWD/gradle-8.1.1/bin
+          wget -q https://services.gradle.org/distributions/gradle-8.2-bin.zip
+          unzip -q gradle-8.2-bin.zip
+          export PATH=$PATH:$PWD/gradle-8.2/bin
           gradle assembleDebug
           
       - uses: actions/upload-artifact@v4
