@@ -1,0 +1,46 @@
+workflows:
+  android-workflow:
+    name: FF MAX APK Build
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    environment:
+      java: 17
+    scripts:
+      - name: Create Android Project Files
+        script: |
+          mkdir -p app/src/main/java/com/panel/ffmax
+          cat << 'EOF' > build.gradle
+          buildscript {
+              repositories { google(); mavenCentral() }
+              dependencies { classpath 'com.android.tools.build:gradle:8.2.0' }
+          }
+          allprojects { repositories { google(); mavenCentral() } }
+          EOF
+          cat << 'EOF' > settings.gradle
+          rootProject.name = "ffmax_panel"
+          include ':app'
+          EOF
+          cat << 'EOF' > app/build.gradle
+          plugins { id 'com.android.application' }
+          android { 
+              namespace 'com.panel.ffmax'
+              compileSdk 33
+              defaultConfig { applicationId "com.panel.ffmax"; minSdk 24; targetSdk 33 } 
+          }
+          EOF
+          cat << 'EOF' > app/src/main/AndroidManifest.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <application android:label="FF"><activity android:name=".MainActivity"><intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter></activity></application>
+          </manifest>
+          EOF
+          cat << 'EOF' > app/src/main/java/com/panel/ffmax/MainActivity.java
+          package com.panel.ffmax; import android.app.Activity; import android.os.Bundle;
+          public class MainActivity extends Activity { protected void onCreate(Bundle b) { super.onCreate(b); } }
+          EOF
+      - name: Build APK
+        script: |
+          cd $CM_BUILD_DIR
+          gradle assembleDebug
+    artifacts:
+      - app/build/outputs/apk/debug/app-debug.apk
