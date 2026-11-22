@@ -69,15 +69,11 @@ jobs:
       - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: '17' }
       
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-        with:
-          packages: 'tools platform-tools build-tools;33.0.1 platforms;android-33'
-          
-      - name: Accept Licenses and Build
+      - name: Build with Gradle
         run: |
+          export ANDROID_HOME=$ANDROID_SDK_ROOT
+          export PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools
           yes | sdkmanager --licenses || true
-          chmod +x gradlew || true
           gradle assembleDebug
           
       - uses: actions/upload-artifact@v4
