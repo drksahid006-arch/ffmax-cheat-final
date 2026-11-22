@@ -11,15 +11,6 @@ workflows:
           mkdir -p app/src/main/java/com/panel/ffmax
           mkdir -p app/src/main/jni
           
-          # --- CMakeLists for Native Injector ---
-          cat << 'EOF' > app/src/main/jni/CMakeLists.txt
-          cmake_minimum_required(VERSION 3.22.1)
-          project(cheat CXX)
-          add_library(cheat SHARED injector.cpp)
-          target_link_libraries(cheat log android dl)
-          EOF
-
-          # --- Native Injector Core ---
           cat << 'EOF' > app/src/main/jni/injector.cpp
           #include <jni.h>
           #include <unistd.h>
@@ -27,12 +18,11 @@ workflows:
           #include <android/log.h>
           #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "FFMX", __VA_ARGS__)
           extern "C" JNIEXPORT jint JNICALL Java_com_panel_ffmax_MainActivity_inject(JNIEnv* env, jobject thiz, jstring pkg) {
-              LOGI("Injector loaded and ready");
+              LOGI("Injector engine loaded");
               return 0;
           }
           EOF
 
-          # --- Gradle Config ---
           cat << 'EOF' > build.gradle
           buildscript {
               repositories { google(); mavenCentral() }
@@ -44,6 +34,7 @@ workflows:
           rootProject.name = "ffmax_panel"
           include ':app'
           EOF
+          
           cat << 'EOF' > app/build.gradle
           plugins { id 'com.android.application' }
           android { 
@@ -60,7 +51,6 @@ workflows:
           }
           EOF
 
-          # --- Manifest & Java ---
           cat << 'EOF' > app/src/main/AndroidManifest.xml
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
@@ -74,20 +64,35 @@ workflows:
               </application>
           </manifest>
           EOF
+          
           cat << 'EOF' > app/src/main/java/com/panel/ffmax/MainActivity.java
           package com.panel.ffmax;
           import android.app.Activity;
           import android.os.Bundle;
           import android.widget.TextView;
+          import android.widget.Button;
+          import android.widget.LinearLayout;
           public class MainActivity extends Activity {
               static { System.loadLibrary("cheat"); }
               public native int inject(String pkg);
               @Override
               protected void onCreate(Bundle savedInstanceState) {
                   super.onCreate(savedInstanceState);
+                  LinearLayout layout = new LinearLayout(this);
+                  layout.setOrientation(LinearLayout.VERTICAL);
+                  layout.setPadding(50, 50, 50, 50);
+
                   TextView text = new TextView(this);
-                  text.setText("C++ Engine Loaded!");
-                  setContentView(text);
+                  text.setText("C++ Engine Ready!");
+                  text.setTextSize(24);
+
+                  Button btn = new Button(this);
+                  btn.setText("START INJECTOR");
+                  btn.setOnClickListener(v -> inject("com.dts.freefiremax"));
+
+                  layout.addView(text);
+                  layout.addView(btn);
+                  setContentView(layout);
               }
           }
           EOF
