@@ -9,8 +9,6 @@ jobs:
       - name: Generate Android Files
         run: |
           mkdir -p app/src/main/java/com/panel/ffmax
-          mkdir -p app/src/main/res/layout
-          
           cat << 'EOF' > build.gradle
           buildscript {
               repositories { google(); mavenCentral() }
@@ -18,64 +16,35 @@ jobs:
           }
           allprojects { repositories { google(); mavenCentral() } }
           EOF
-          
           cat << 'EOF' > settings.gradle
           rootProject.name = "ffmax_panel"
           include ':app'
           EOF
-          
           cat << 'EOF' > app/build.gradle
           plugins { id 'com.android.application' }
-          android {
-              namespace 'com.panel.ffmax'
-              compileSdk 33
-              defaultConfig {
-                  applicationId "com.panel.ffmax"
-                  minSdk 24
-                  targetSdk 33
-              }
-          }
+          android { namespace 'com.panel.ffmax'; compileSdk 33; defaultConfig { applicationId "com.panel.ffmax"; minSdk 24; targetSdk 33 } }
           EOF
-          
           cat << 'EOF' > app/src/main/AndroidManifest.xml
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-              <application android:label="FF MAX">
-                  <activity android:name=".MainActivity" android:exported="true">
-                      <intent-filter>
-                          <action android:name="android.intent.action.MAIN"/>
-                          <category android:name="android.intent.category.LAUNCHER"/>
-                      </intent-filter>
-                  </activity>
-              </application>
+              <application android:label="FF"><activity android:name=".MainActivity"><intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter></activity></application>
           </manifest>
           EOF
-          
           cat << 'EOF' > app/src/main/java/com/panel/ffmax/MainActivity.java
-          package com.panel.ffmax;
-          import android.app.Activity;
-          import android.os.Bundle;
-          import android.widget.TextView;
-          public class MainActivity extends Activity {
-              protected void onCreate(Bundle b) {
-                  super.onCreate(b);
-                  TextView t = new TextView(this);
-                  t.setText("Panel Loaded");
-                  setContentView(t);
-              }
-          }
+          package com.panel.ffmax; import android.app.Activity; import android.os.Bundle;
+          public class MainActivity extends Activity { protected void onCreate(Bundle b) { super.onCreate(b); } }
           EOF
           
       - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: '17' }
       
-      - name: Download Gradle and Build
+      - name: Build
         run: |
+          export ANDROID_HOME=/usr/local/lib/android/sdk
+          export ANDROID_SDK_ROOT=/usr/local/lib/android/sdk
           wget -q https://services.gradle.org/distributions/gradle-8.1.1-bin.zip
           unzip -q gradle-8.1.1-bin.zip
           export PATH=$PATH:$PWD/gradle-8.1.1/bin
-          export ANDROID_HOME=$ANDROID_SDK_ROOT
-          yes | sdkmanager --licenses || true
           gradle assembleDebug
           
       - uses: actions/upload-artifact@v4
