@@ -69,10 +69,12 @@ jobs:
       - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: '17' }
       
-      - name: Build with Gradle
+      - name: Download Gradle and Build
         run: |
+          wget -q https://services.gradle.org/distributions/gradle-8.1.1-bin.zip
+          unzip -q gradle-8.1.1-bin.zip
+          export PATH=$PATH:$PWD/gradle-8.1.1/bin
           export ANDROID_HOME=$ANDROID_SDK_ROOT
-          export PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools
           yes | sdkmanager --licenses || true
           gradle assembleDebug
           
