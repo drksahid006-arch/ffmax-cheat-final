@@ -25,18 +25,40 @@ workflows:
           android { 
               namespace 'com.panel.ffmax'
               compileSdk 33
-              defaultConfig { applicationId "com.panel.ffmax"; minSdk 24; targetSdk 33 } 
+              defaultConfig { 
+                  applicationId "com.panel.ffmax"
+                  minSdk 24
+                  targetSdk 33 
+              } 
           }
           EOF
           cat << 'EOF' > app/src/main/AndroidManifest.xml
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-              <application android:label="FF"><activity android:name=".MainActivity"><intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter></activity></application>
+              <application android:label="FF MAX">
+                  <activity android:name=".MainActivity" android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN"/>
+                          <category android:name="android.intent.category.LAUNCHER"/>
+                      </intent-filter>
+                  </activity>
+              </application>
           </manifest>
           EOF
           cat << 'EOF' > app/src/main/java/com/panel/ffmax/MainActivity.java
-          package com.panel.ffmax; import android.app.Activity; import android.os.Bundle;
-          public class MainActivity extends Activity { protected void onCreate(Bundle b) { super.onCreate(b); } }
+          package com.panel.ffmax;
+          import android.app.Activity;
+          import android.os.Bundle;
+          import android.widget.TextView;
+          public class MainActivity extends Activity {
+              @Override
+              protected void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+                  TextView text = new TextView(this);
+                  text.setText("Panel Base Loaded!");
+                  setContentView(text);
+              }
+          }
           EOF
       - name: Build APK
         script: |
