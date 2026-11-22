@@ -1,0 +1,33 @@
+name: Build APK
+on: [push, workflow_dispatch]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Generate Android Files
+        run: |
+          mkdir -p app/src/main/java/com/panel/ffmax
+          mkdir -p app/src/main/res/layout
+          
+          echo 'plugins { id "com.android.application" }' > build.gradle
+          echo 'android { namespace "com.panel.ffmax"; compileSdk 33; defaultConfig { applicationId "com.panel.ffmax"; minSdk 24; targetSdk 33 } }' >> build.gradle
+          
+          echo 'rootProject.name = "ffmax_panel"' > settings.gradle
+          echo 'include ":app"' >> settings.gradle
+          
+          echo '<?xml version="1.0" encoding="utf-8"?><manifest xmlns:android="http://schemas.android.com/apk/res/android"><application android:label="FF MAX"><activity android:name=".MainActivity" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter></activity></application></manifest>' > app/src/main/AndroidManifest.xml
+          
+          echo 'package com.panel.ffmax; import android.app.Activity; import android.os.Bundle; import android.widget.TextView; public class MainActivity extends Activity { protected void onCreate(Bundle b) { super.onCreate(b); TextView t = new TextView(this); t.setText("Panel Loaded"); setContentView(t); } }' > app/src/main/java/com/panel/ffmax/MainActivity.java
+          
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '17' }
+      - uses: android-actions/setup-android@v3
+      - run: sdkmanager --install "ndk;25.2.9519653" "cmake;3.22.1"
+      - run: gradle assembleDebug
+      
+      - uses: actions/upload-artifact@v4
+        with:
+          name: app-debug
+          path: app/build/outputs/apk/debug/app-debug.apk
