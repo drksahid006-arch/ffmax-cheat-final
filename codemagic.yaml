@@ -1,13 +1,20 @@
-workflows:
-  android-workflow:
-    name: FF MAX Aimbot Build
-    instance_type: mac_mini_m2
-    max_build_duration: 60
-    environment:
-      java: 17
-    scripts:
+name: Build APK
+on: [push, workflow_dispatch]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '17' }
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
       - name: Generate Files
-        script: |
+        run: |
           mkdir -p app/src/main/java/com/panel/ffmax
           mkdir -p app/src/main/jni
           
@@ -236,9 +243,11 @@ workflows:
               @Override public void onDestroy() { super.onDestroy(); if (iconView != null) wm.removeView(iconView); if (isMenuOpen) wm.removeView(menuView); }
           }
           EOF
+
       - name: Build APK
-        script: |
-          cd $CM_BUILD_DIR
-          gradle assembleDebug
-    artifacts:
-      - app/build/outputs/apk/debug/app-debug.apk
+        run: gradle assembleDebug
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: app-debug
+          path: app/build/outputs/apk/debug/app-debug.apk
