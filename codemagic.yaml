@@ -1,6 +1,6 @@
 workflows:
   android-workflow:
-    name: FF MAX PRO Build
+    name: FF MAX Build
     instance_type: mac_mini_m2
     max_build_duration: 60
     environment:
@@ -25,18 +25,20 @@ workflows:
 
           namespace offsets {
               uintptr_t IL2CPP_BASE = 0;
-              uintptr_t ENTITY_LIST = 0x9C8E14C; // Assuming this from earlier
-              uintptr_t ENTITY_STRIDE = 0x10;    // Assuming this from earlier
-              uintptr_t VIEW_MATRIX = 0x968CB2F0;// Assuming this from earlier
-              uintptr_t HEALTH_OFFSET = 0x2A8;   // Assuming this from earlier
+              // Guessed Offsets (Replace with your dump.cs offsets)
+              uintptr_t LOCAL_PLAYER = 0x9C8E150;
+              uintptr_t ENTITY_LIST = 0x9C8E14C;
+              uintptr_t ENTITY_STRIDE = 0x10;
+              uintptr_t VIEW_MATRIX = 0x968CB2F0;
+              uintptr_t HEALTH_OFFSET = 0x2A8;
+              uintptr_t TEAM_OFFSET = 0x2B0;
               
-              // --- YOUR CONFIRMED OB55 BONE OFFSETS ---
-              uintptr_t HEAD_BONE = 0x49C;       // From your image (3EA section)
-              uintptr_t HIP_BONE = 0x4A0;        // From your image
-              uintptr_t COLLIDER_DISTANCE = 0x100;// From your image
+              // OB55 Aimbot Bone Offsets from your image
+              uintptr_t HEAD_BONE = 0x49C; 
+              uintptr_t HIP_BONE = 0x4A0;
           }
 
-          bool espOn = false; bool aimbotOn = false;
+          bool aimbotOn = false;
 
           uintptr_t GetBase(const char* name) { 
               FILE* f = fopen("/proc/self/maps", "r"); 
@@ -50,48 +52,51 @@ workflows:
 
           template <typename T> T Read(uintptr_t addr) { if(!addr) return T{}; return *(T*)addr; }
 
-          bool WorldToScreen(const Vec3& w, const float* m, int sw, int sh, float& sx, float& sy) {
-              float cx = w.x*m[0] + w.y*m[4] + w.z*m[8]  + m[12];
-              float cy = w.x*m[1] + w.y*m[5] + w.z*m[9]  + m[13];
-              float cw = w.x*m[3] + w.y*m[7] + w.z*m[11] + m[15];
-              if (cw < 0.1f) return false;
-              sx = (sw * 0.5f) * (1.0f + cx / cw);
-              sy = (sh * 0.5f) * (1.0f - cy / cw);
-              return true;
+          void SetViewAngles(Vec3 angles) {
+              // Placeholder for ViewAngle memory write
           }
 
-          extern "C" JNIEXPORT void JNICALL Java_com_panel_ffmax_FloatingService_toggleESP(JNIEnv* env, jobject thiz, jboolean s) { espOn = s; }
+          Vec3 CalcAngle(Vec3 src, Vec3 dst) {
+              Vec3 angles;
+              float deltaX = dst.x - src.x;
+              float deltaY = dst.y - src.y;
+              float deltaZ = dst.z - src.z;
+              float hyp = sqrt(deltaX * deltaX + deltaY * deltaY);
+              angles.x = atan2(deltaY, deltaX) * 180.0f / M_PI;
+              angles.y = atan2(deltaZ, hyp) * 180.0f / M_PI;
+              angles.z = 0.0f;
+              return angles;
+          }
+
           extern "C" JNIEXPORT void JNICALL Java_com_panel_ffmax_FloatingService_toggleAimbot(JNIEnv* env, jobject thiz, jboolean s) { aimbotOn = s; }
 
           extern "C" JNIEXPORT jint JNICALL Java_com_panel_ffmax_MainActivity_inject(JNIEnv* env, jobject thiz, jstring pkg) {
               offsets::IL2CPP_BASE = GetBase("libil2cpp.so");
-              if(!offsets::IL2CPP_BASE) {
-                  LOGI("Error: libil2cpp.so not found! Is the game running?");
-                  return -1;
-              }
+              if(!offsets::IL2CPP_BASE) return -1;
               
-              LOGI("Engine Started! Base: %lx", offsets::IL2CPP_BASE);
+              LOGI("Engine Started! Base: 0x%lx", offsets::IL2CPP_BASE);
 
               while(true) {
-                  if(espOn || aimbotOn) {
+                  if(aimbotOn) {
                       uintptr_t list = Read<uintptr_t>(offsets::IL2CPP_BASE + offsets::ENTITY_LIST);
-                      if(list != 0) {
-                          float viewMatrix[16];
-                          memcpy(viewMatrix, (void*)(offsets::IL2CPP_BASE + offsets::VIEW_MATRIX), sizeof(viewMatrix));
-                          
+                      uintptr_t localPlayer = Read<uintptr_t>(offsets::IL2CPP_BASE + offsets::LOCAL_PLAYER);
+                      
+                      if(list != 0 && localPlayer != 0) {
+                          Vec3 localPos = Read<Vec3>(localPlayer + 0x100);
+                          int localTeam = Read<int>(localPlayer + offsets::TEAM_OFFSET);
+
                           for(int i=0; i<50; i++) {
                               uintptr_t entity = list + (i * offsets::ENTITY_STRIDE);
                               int health = Read<int>(entity + offsets::HEALTH_OFFSET);
+                              int team = Read<int>(entity + offsets::TEAM_OFFSET);
                               
-                              if(health > 0 && health < 1000) {
-                                  // READ HEAD BONE POSITION USING YOUR 0x49C OFFSET
+                              if(health > 0 && health < 1000 && team != localTeam) {
                                   Vec3 headPos = Read<Vec3>(entity + offsets::HEAD_BONE);
-                                  float sx, sy;
-                                  if(WorldToScreen(headPos, viewMatrix, 1080, 2400, sx, sy)) {
-                                      if(espOn) {
-                                          LOGI("ESP FOUND ENEMY HEAD AT: X=%f, Y=%f", sx, sy);
-                                      }
-                                  }
+                                  Vec3 aimAngles = CalcAngle(localPos, headPos);
+                                  
+                                  SetViewAngles(aimAngles);
+                                  LOGI("Aimbot Locking: Pitch %f, Yaw %f", aimAngles.x, aimAngles.y);
+                                  break; 
                               }
                           }
                       }
@@ -137,7 +142,7 @@ workflows:
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
               <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
-              <application android:label="FF PRO">
+              <application android:label="FF AIMBOT">
                   <activity android:name=".MainActivity" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter></activity>
                   <service android:name=".FloatingService"/>
               </application>
@@ -153,7 +158,7 @@ workflows:
               @Override protected void onCreate(Bundle b) {
                   super.onCreate(b);
                   LinearLayout layout = new LinearLayout(this); layout.setOrientation(LinearLayout.VERTICAL); layout.setPadding(50, 50, 50, 50); layout.setBackgroundColor(Color.parseColor("#121212"));
-                  Button startMenu = new Button(this); startMenu.setText("START PRO MENU"); startMenu.setOnClickListener(v -> {
+                  Button startMenu = new Button(this); startMenu.setText("START AIMBOT"); startMenu.setOnClickListener(v -> {
                       if (!Settings.canDrawOverlays(this)) startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + getPackageName())));
                       else { startService(new Intent(this, FloatingService.class)); inject("com.dts.freefiremax"); }
                   });
@@ -167,7 +172,7 @@ workflows:
           import android.app.Service; import android.content.Intent; import android.graphics.Color; import android.graphics.PixelFormat; import android.os.IBinder; import android.view.Gravity; import android.view.MotionEvent; import android.view.View; import android.view.WindowManager; import android.widget.LinearLayout; import android.widget.CheckBox; import android.widget.TextView; import android.widget.ImageView;
           public class FloatingService extends Service {
               static { System.loadLibrary("cheat"); }
-              public native void toggleESP(boolean s); public native void toggleAimbot(boolean s);
+              public native void toggleAimbot(boolean s);
               private WindowManager wm; private LinearLayout menuView; private ImageView iconView;
               private WindowManager.LayoutParams menuParams; private WindowManager.LayoutParams iconParams;
               private boolean isMenuOpen = false;
@@ -180,8 +185,7 @@ workflows:
                   iconParams.gravity = Gravity.TOP | Gravity.START; iconParams.x = 200; iconParams.y = 300;
                   wm.addView(iconView, iconParams);
                   menuView = new LinearLayout(this); menuView.setOrientation(LinearLayout.VERTICAL); menuView.setBackgroundColor(Color.parseColor("#CC000000")); menuView.setPadding(30, 30, 30, 30);
-                  TextView title = new TextView(this); title.setText("PRO MOD MENU"); title.setTextColor(Color.CYAN); menuView.addView(title);
-                  CheckBox esp = new CheckBox(this); esp.setText("ESP Box"); esp.setTextColor(Color.WHITE); esp.setOnCheckedChangeListener((v, c) -> toggleESP(c)); menuView.addView(esp);
+                  TextView title = new TextView(this); title.setText("AIMBOT MENU"); title.setTextColor(Color.CYAN); menuView.addView(title);
                   CheckBox aim = new CheckBox(this); aim.setText("Aimbot"); aim.setTextColor(Color.WHITE); aim.setOnCheckedChangeListener((v, c) -> toggleAimbot(c)); menuView.addView(aim);
                   menuParams = new WindowManager.LayoutParams(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY, WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE, PixelFormat.TRANSLUCENT);
                   menuParams.gravity = Gravity.TOP | Gravity.START; menuParams.x = 200; menuParams.y = 450;
