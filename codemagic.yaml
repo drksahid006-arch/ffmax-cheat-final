@@ -1,12 +1,12 @@
 workflows:
   android-workflow:
-    name: FF MAX APK Build
+    name: FF MAX PRO Build
     instance_type: mac_mini_m2
     max_build_duration: 60
     environment:
       java: 17
     scripts:
-      - name: Create Android Project Files
+      - name: Generate Files
         script: |
           mkdir -p app/src/main/java/com/panel/ffmax
           mkdir -p app/src/main/jni
@@ -18,96 +18,29 @@ workflows:
           #include <cstring>
           #include <cstdio>
           #include <cmath>
-
           #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "FFMX", __VA_ARGS__)
-
           struct Vec3 { float x, y, z; };
-
           namespace offsets {
               uintptr_t IL2CPP_BASE = 0;
               uintptr_t ENTITY_LIST = 0x9C8E14C;
               uintptr_t ENTITY_STRIDE = 0x10;
               uintptr_t VIEW_MATRIX = 0x968CB2F0;
               uintptr_t HEALTH_OFFSET = 0x2A8;
-              uintptr_t TEAM_OFFSET = 0x2B0;
-              uintptr_t HEAD_BONE = 0x3A4;
           }
-
-          // Menu States
-          bool enableESP = false;
-          bool enableAimbot = false;
-
-          uintptr_t GetModuleBase(const char* moduleName) {
-              FILE* file = fopen("/proc/self/maps", "r");
-              if (!file) return 0;
-              char line[512];
-              uintptr_t base = 0;
-              while (fgets(line, sizeof(line), file)) {
-                  if (strstr(line, moduleName)) {
-                      base = strtoull(line, nullptr, 16);
-                      break;
-                  }
-              }
-              fclose(file);
-              return base;
-          }
-
-          template <typename T>
-          T ReadMemory(uintptr_t addr) {
-              if (addr == 0) return T{};
-              return *(T*)addr;
-          }
-
-          bool WorldToScreen(const Vec3& w, const float* m, int sw, int sh, float& sx, float& sy) {
-              float cx = w.x*m[0] + w.y*m[4] + w.z*m[8]  + m[12];
-              float cy = w.x*m[1] + w.y*m[5] + w.z*m[9]  + m[13];
-              float cw = w.x*m[3] + w.y*m[7] + w.z*m[11] + m[15];
-              if (cw < 0.1f) return false;
-              sx = (sw * 0.5f) * (1.0f + cx / cw);
-              sy = (sh * 0.5f) * (1.0f - cy / cw);
-              return true;
-          }
-
-          // JNI Functions to toggle features from Java UI
-          extern "C" JNIEXPORT void JNICALL
-          Java_com_panel_ffmax_FloatingService_toggleESP(JNIEnv* env, jobject thiz, jboolean state) {
-              enableESP = state;
-              LOGI("ESP Toggled: %d", enableESP);
-          }
-
-          extern "C" JNIEXPORT void JNICALL
-          Java_com_panel_ffmax_FloatingService_toggleAimbot(JNIEnv* env, jobject thiz, jboolean state) {
-              enableAimbot = state;
-              LOGI("Aimbot Toggled: %d", enableAimbot);
-          }
-
-          extern "C" JNIEXPORT jint JNICALL
-          Java_com_panel_ffmax_MainActivity_inject(JNIEnv* env, jobject thiz, jstring pkg) {
-              offsets::IL2CPP_BASE = GetModuleBase("libil2cpp.so");
-              if (!offsets::IL2CPP_BASE) return -1;
-              
-              while (true) {
-                  if (enableESP || enableAimbot) {
-                      uintptr_t entityList = ReadMemory<uintptr_t>(offsets::IL2CPP_BASE + offsets::ENTITY_LIST);
-                      if (entityList != 0) {
-                          float viewMatrix[16];
-                          memcpy(viewMatrix, (void*)(offsets::IL2CPP_BASE + offsets::VIEW_MATRIX), sizeof(viewMatrix));
-                          
-                          for (int i = 0; i < 50; i++) {
-                              uintptr_t entity = entityList + (i * offsets::ENTITY_STRIDE);
-                              int health = ReadMemory<int>(entity + offsets::HEALTH_OFFSET);
-                              if (health > 0 && health < 1000) {
-                                  Vec3 pos = ReadMemory<Vec3>(entity + offsets::HEAD_BONE);
-                                  float sx, sy;
-                                  if (WorldToScreen(pos, viewMatrix, 1080, 2400, sx, sy)) {
-                                      if (enableESP) {
-                                          // Logs coordinate if ESP is on
-                                          LOGI("ESP: Enemy at %f, %f", sx, sy);
-                                      }
-                                  }
-                              }
-                          }
-                      }
+          bool espOn = false; bool aimbotOn = false;
+          uintptr_t GetBase(const char* name) { FILE* f = fopen("/proc/self/maps", "r"); if(!f) return 0; char line[512]; uintptr_t base = 0; while(fgets(line, 512, f)) { if(strstr(line, name)) { base = strtoull(line, nullptr, 16); break; } } fclose(f); return base; }
+          template <typename T> T Read(uintptr_t addr) { if(!addr) return T{}; return *(T*)addr; }
+          
+          extern "C" JNIEXPORT void JNICALL Java_com_panel_ffmax_FloatingService_toggleESP(JNIEnv* env, jobject thiz, jboolean s) { espOn = s; }
+          extern "C" JNIEXPORT void JNICALL Java_com_panel_ffmax_FloatingService_toggleAimbot(JNIEnv* env, jobject thiz, jboolean s) { aimbotOn = s; }
+          
+          extern "C" JNIEXPORT jint JNICALL Java_com_panel_ffmax_MainActivity_inject(JNIEnv* env, jobject thiz, jstring pkg) {
+              offsets::IL2CPP_BASE = GetBase("libil2cpp.so");
+              if(!offsets::IL2CPP_BASE) return -1;
+              while(true) {
+                  if(espOn) {
+                      uintptr_t list = Read<uintptr_t>(offsets::IL2CPP_BASE + offsets::ENTITY_LIST);
+                      if(list) LOGI("ESP Working. Entities found.");
                   }
                   usleep(10000);
               }
@@ -121,12 +54,8 @@ workflows:
           add_library(cheat SHARED injector.cpp)
           target_link_libraries(cheat log android dl)
           EOF
-
           cat << 'EOF' > build.gradle
-          buildscript {
-              repositories { google(); mavenCentral() }
-              dependencies { classpath 'com.android.tools.build:gradle:8.2.0' }
-          }
+          buildscript { repositories { google(); mavenCentral() } dependencies { classpath 'com.android.tools.build:gradle:8.2.0' } }
           allprojects { repositories { google(); mavenCentral() } }
           EOF
           cat << 'EOF' > settings.gradle
@@ -138,13 +67,7 @@ workflows:
           android { 
               namespace 'com.panel.ffmax'
               compileSdk 33
-              defaultConfig { 
-                  applicationId "com.panel.ffmax"
-                  minSdk 24
-                  targetSdk 33 
-                  ndk { abiFilters 'arm64-v8a' }
-                  externalNativeBuild { cmake { arguments '-DANDROID_STL=c++_shared' } }
-              } 
+              defaultConfig { applicationId "com.panel.ffmax"; minSdk 24; targetSdk 33; ndk { abiFilters 'arm64-v8a' }; externalNativeBuild { cmake { arguments '-DANDROID_STL=c++_shared' } } } 
               externalNativeBuild { cmake { path 'src/main/jni/CMakeLists.txt' } }
           }
           EOF
@@ -153,115 +76,91 @@ workflows:
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
               <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
-              <application android:label="FF MAX PRO">
-                  <activity android:name=".MainActivity" android:exported="true">
-                      <intent-filter>
-                          <action android:name="android.intent.action.MAIN"/>
-                          <category android:name="android.intent.category.LAUNCHER"/>
-                      </intent-filter>
-                  </activity>
-                  <service android:name=".FloatingService" android:exported="false"/>
+              <application android:label="FF PRO">
+                  <activity android:name=".MainActivity" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter></activity>
+                  <service android:name=".FloatingService"/>
               </application>
           </manifest>
           EOF
           
           cat << 'EOF' > app/src/main/java/com/panel/ffmax/MainActivity.java
           package com.panel.ffmax;
-          import android.app.Activity;
-          import android.content.Intent;
-          import android.net.Uri;
-          import android.os.Bundle;
-          import android.provider.Settings;
-          import android.widget.Button;
-          import android.widget.LinearLayout;
-          import android.graphics.Color;
-
+          import android.app.Activity; import android.content.Intent; import android.net.Uri; import android.os.Bundle; import android.provider.Settings; import android.widget.Button; import android.widget.LinearLayout; import android.graphics.Color;
           public class MainActivity extends Activity {
               static { System.loadLibrary("cheat"); }
               public native int inject(String pkg);
-              
-              @Override
-              protected void onCreate(Bundle savedInstanceState) {
-                  super.onCreate(savedInstanceState);
-                  LinearLayout layout = new LinearLayout(this);
-                  layout.setOrientation(LinearLayout.VERTICAL);
-                  layout.setPadding(50, 50, 50, 50);
-                  layout.setBackgroundColor(Color.parseColor("#121212"));
-
-                  Button startMenu = new Button(this);
-                  startMenu.setText("START FLOATING MENU");
-                  startMenu.setOnClickListener(v -> {
-                      if (!Settings.canDrawOverlays(MainActivity.this)) {
-                          startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + getPackageName())));
-                      } else {
-                          startService(new Intent(MainActivity.this, FloatingService.class));
-                      }
+              @Override protected void onCreate(Bundle b) {
+                  super.onCreate(b);
+                  LinearLayout layout = new LinearLayout(this); layout.setOrientation(LinearLayout.VERTICAL); layout.setPadding(50, 50, 50, 50); layout.setBackgroundColor(Color.parseColor("#121212"));
+                  Button startMenu = new Button(this); startMenu.setText("START PRO MENU"); startMenu.setOnClickListener(v -> {
+                      if (!Settings.canDrawOverlays(this)) startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + getPackageName())));
+                      else { startService(new Intent(this, FloatingService.class)); inject("com.dts.freefiremax"); }
                   });
-                  layout.addView(startMenu);
-                  setContentView(layout);
+                  layout.addView(startMenu); setContentView(layout);
               }
           }
           EOF
 
           cat << 'EOF' > app/src/main/java/com/panel/ffmax/FloatingService.java
           package com.panel.ffmax;
-          import android.app.Service;
-          import android.content.Intent;
-          import android.graphics.Color;
-          import android.graphics.PixelFormat;
-          import android.os.IBinder;
-          import android.view.Gravity;
-          import android.view.WindowManager;
-          import android.widget.LinearLayout;
-          import android.widget.CheckBox;
-          import android.widget.TextView;
-
+          import android.app.Service; import android.content.Intent; import android.graphics.Color; import android.graphics.PixelFormat; import android.os.IBinder; import android.view.Gravity; import android.view.MotionEvent; import android.view.View; import android.view.WindowManager; import android.widget.LinearLayout; import android.widget.CheckBox; import android.widget.TextView; import android.widget.ImageView;
+          
           public class FloatingService extends Service {
               static { System.loadLibrary("cheat"); }
-              public native void toggleESP(boolean state);
-              public native void toggleAimbot(boolean state);
-              
-              private WindowManager windowManager;
-              private LinearLayout floatingView;
+              public native void toggleESP(boolean s); public native void toggleAimbot(boolean s);
+              private WindowManager wm; private LinearLayout menuView; private ImageView iconView;
+              private WindowManager.LayoutParams menuParams; private WindowManager.LayoutParams iconParams;
+              private boolean isMenuOpen = false;
 
-              @Override
-              public IBinder onBind(Intent intent) { return null; }
+              @Override public IBinder onBind(Intent i) { return null; }
 
-              @Override
-              public void onCreate() {
+              @Override public void onCreate() {
                   super.onCreate();
-                  windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
-                  floatingView = new LinearLayout(this);
-                  floatingView.setOrientation(LinearLayout.VERTICAL);
-                  floatingView.setBackgroundColor(Color.parseColor("#CC000000"));
-                  floatingView.setPadding(30, 30, 30, 30);
+                  wm = (WindowManager) getSystemService(WINDOW_SERVICE);
+                  
+                  // 1. Create the Floating Icon
+                  iconView = new ImageView(this);
+                  iconView.setImageResource(android.R.drawable.ic_menu_manage);
+                  iconView.setBackgroundColor(Color.parseColor("#80000000"));
+                  iconView.setPadding(15,15,15,15);
+                  iconParams = new WindowManager.LayoutParams(120, 120, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY, WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE, PixelFormat.TRANSLUCENT);
+                  iconParams.gravity = Gravity.TOP | Gravity.START; iconParams.x = 200; iconParams.y = 300;
+                  wm.addView(iconView, iconParams);
 
-                  CheckBox espLine = new CheckBox(this); espLine.setText("ESP Box"); espLine.setTextColor(Color.WHITE);
-                  espLine.setOnCheckedChangeListener((v, isChecked) -> toggleESP(isChecked));
+                  // 2. Create the Menu
+                  menuView = new LinearLayout(this); menuView.setOrientation(LinearLayout.VERTICAL); menuView.setBackgroundColor(Color.parseColor("#CC000000")); menuView.setPadding(30, 30, 30, 30);
+                  TextView title = new TextView(this); title.setText("PRO MOD MENU"); title.setTextColor(Color.CYAN); menuView.addView(title);
+                  CheckBox esp = new CheckBox(this); esp.setText("ESP Box"); esp.setTextColor(Color.WHITE); esp.setOnCheckedChangeListener((v, c) -> toggleESP(c)); menuView.addView(esp);
+                  CheckBox aim = new CheckBox(this); aim.setText("Aimbot"); aim.setTextColor(Color.WHITE); aim.setOnCheckedChangeListener((v, c) -> toggleAimbot(c)); menuView.addView(aim);
+                  menuParams = new WindowManager.LayoutParams(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY, WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE, PixelFormat.TRANSLUCENT);
+                  menuParams.gravity = Gravity.TOP | Gravity.START; menuParams.x = 200; menuParams.y = 450;
 
-                  CheckBox aimbot = new CheckBox(this); aimbot.setText("Aimbot"); aimbot.setTextColor(Color.WHITE);
-                  aimbot.setOnCheckedChangeListener((v, isChecked) -> toggleAimbot(isChecked));
-
-                  floatingView.addView(espLine);
-                  floatingView.addView(aimbot);
-
-                  WindowManager.LayoutParams params = new WindowManager.LayoutParams(
-                          WindowManager.LayoutParams.WRAP_CONTENT,
-                          WindowManager.LayoutParams.WRAP_CONTENT,
-                          WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-                          WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
-                          PixelFormat.TRANSLUCENT);
-                  params.gravity = Gravity.TOP | Gravity.START;
-                  params.x = 100; params.y = 100;
-
-                  windowManager.addView(floatingView, params);
+                  // 3. Handle Icon Drag and Click
+                  iconView.setOnTouchListener(new View.OnTouchListener() {
+                      private int initialX, initialY; private float initialTouchX, initialTouchY;
+                      @Override public boolean onTouch(View v, MotionEvent event) {
+                          switch (event.getAction()) {
+                              case MotionEvent.ACTION_DOWN:
+                                  initialX = iconParams.x; initialY = iconParams.y;
+                                  initialTouchX = event.getRawX(); initialTouchY = event.getRawY();
+                                  return true;
+                              case MotionEvent.ACTION_UP:
+                                  if (Math.abs(event.getRawX() - initialTouchX) < 10 && Math.abs(event.getRawY() - initialTouchY) < 10) {
+                                      if (isMenuOpen) { wm.removeView(menuView); isMenuOpen = false; }
+                                      else { wm.addView(menuView, menuParams); isMenuOpen = true; }
+                                  }
+                                  return true;
+                              case MotionEvent.ACTION_MOVE:
+                                  iconParams.x = initialX + (int) (event.getRawX() - initialTouchX);
+                                  iconParams.y = initialY + (int) (event.getRawY() - initialTouchY);
+                                  wm.updateViewLayout(iconView, iconParams);
+                                  return true;
+                          }
+                          return false;
+                      }
+                  });
               }
-
-              @Override
-              public void onDestroy() {
-                  super.onDestroy();
-                  if (floatingView != null) windowManager.removeView(floatingView);
-              }
+              @Override public void onDestroy() { super.onDestroy(); if (iconView != null) wm.removeView(iconView); if (isMenuOpen) wm.removeView(menuView); }
           }
           EOF
       - name: Build APK
