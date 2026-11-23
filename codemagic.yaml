@@ -1,20 +1,13 @@
-name: Build APK
-on: [push, workflow_dispatch]
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with: { distribution: temurin, java-version: '17' }
-
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
+workflows:
+  android-workflow:
+    name: FF Aimbot Build
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    environment:
+      java: 17
+    scripts:
       - name: Generate Files
-        run: |
+        script: |
           mkdir -p app/src/main/java/com/panel/ffmax
           mkdir -p app/src/main/jni
           
@@ -25,7 +18,6 @@ jobs:
           #include <cstring>
           #include <cstdio>
           #include <cmath>
-          #include <sys/mman.h>
 
           #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "FFMX", __VA_ARGS__)
 
@@ -33,9 +25,8 @@ jobs:
 
           namespace offsets {
               uintptr_t IL2CPP_BASE = 0;
-              uintptr_t ENTITY_LIST = 0;
-              uintptr_t LOCAL_PLAYER = 0;
-              uintptr_t VIEW_MATRIX = 0;
+              uintptr_t ENTITY_LIST = 0x9C8E14C;
+              uintptr_t LOCAL_PLAYER = 0x9C8E150;
               uintptr_t ENTITY_STRIDE = 0x10; 
               uintptr_t HEALTH_OFFSET = 0x2A8;
               uintptr_t TEAM_OFFSET = 0x2B0;
@@ -71,29 +62,6 @@ jobs:
               return angles;
           }
 
-          bool ScanAOB(uintptr_t base, size_t size) {
-              const char* pattern = "\xFF\xFF\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xA5\x43";
-              const char* mask = "xx????????????????????????????xx";
-              
-              uint8_t* data = (uint8_t*)base;
-              size_t patternLength = strlen(mask);
-
-              for (size_t i = 0; i < size - patternLength; ++i) {
-                  bool found = true;
-                  for (size_t j = 0; j < patternLength; ++j) {
-                      if (mask[j] == 'x' && data[i + j] != (uint8_t)pattern[j]) {
-                          found = false;
-                          break;
-                      }
-                  }
-                  if (found) {
-                      LOGI("\033[31mAOB Found at address: 0x%lx\033[0m", (base + i));
-                      return true;
-                  }
-              }
-              return false;
-          }
-
           extern "C" JNIEXPORT void JNICALL Java_com_panel_ffmax_FloatingService_toggleAimbot(JNIEnv* env, jobject thiz, jboolean s) { aimbotOn = s; }
 
           extern "C" JNIEXPORT jint JNICALL Java_com_panel_ffmax_MainActivity_inject(JNIEnv* env, jobject thiz, jstring pkg) {
@@ -105,31 +73,27 @@ jobs:
               
               LOGI("Engine Started. Base: 0x%lx", offsets::IL2CPP_BASE);
 
-              ScanAOB(offsets::IL2CPP_BASE, 0xFFFFFF);
-
               while(true) {
                   if(aimbotOn) {
-                      if(offsets::ENTITY_LIST != 0 && offsets::LOCAL_PLAYER != 0) {
-                          uintptr_t list = Read<uintptr_t>(offsets::IL2CPP_BASE + offsets::ENTITY_LIST);
-                          uintptr_t localPlayer = Read<uintptr_t>(offsets::IL2CPP_BASE + offsets::LOCAL_PLAYER);
-                          
-                          if(list != 0 && localPlayer != 0) {
-                              Vec3 localPos = Read<Vec3>(localPlayer + 0x100); 
-                              int localTeam = Read<int>(localPlayer + offsets::TEAM_OFFSET);
+                      uintptr_t list = Read<uintptr_t>(offsets::IL2CPP_BASE + offsets::ENTITY_LIST);
+                      uintptr_t localPlayer = Read<uintptr_t>(offsets::IL2CPP_BASE + offsets::LOCAL_PLAYER);
+                      
+                      if(list != 0 && localPlayer != 0) {
+                          Vec3 localPos = Read<Vec3>(localPlayer + 0x100); 
+                          int localTeam = Read<int>(localPlayer + offsets::TEAM_OFFSET);
 
-                              for(int i=0; i<50; i++) {
-                                  uintptr_t entity = list + (i * offsets::ENTITY_STRIDE);
-                                  int health = Read<int>(entity + offsets::HEALTH_OFFSET);
-                                  int team = Read<int>(entity + offsets::TEAM_OFFSET);
+                          for(int i=0; i<50; i++) {
+                              uintptr_t entity = list + (i * offsets::ENTITY_STRIDE);
+                              int health = Read<int>(entity + offsets::HEALTH_OFFSET);
+                              int team = Read<int>(entity + offsets::TEAM_OFFSET);
+                              
+                              if(health > 0 && health < 1000 && team != localTeam) {
+                                  Vec3 headPos = Read<Vec3>(entity + offsets::HEAD_BONE);
+                                  Vec3 aimAngles = CalcAngle(localPos, headPos);
                                   
-                                  if(health > 0 && health < 1000 && team != localTeam) {
-                                      Vec3 headPos = Read<Vec3>(entity + offsets::HEAD_BONE);
-                                      Vec3 aimAngles = CalcAngle(localPos, headPos);
-                                      
-                                      SetViewAngles(aimAngles);
-                                      LOGI("\033[31mAimbot Locking: Pitch %f, Yaw %f\033[0m", aimAngles.x, aimAngles.y);
-                                      break; 
-                                  }
+                                  SetViewAngles(aimAngles);
+                                  LOGI("Aimbot Locking: Pitch %f, Yaw %f", aimAngles.x, aimAngles.y);
+                                  break; 
                               }
                           }
                       }
@@ -243,11 +207,9 @@ jobs:
               @Override public void onDestroy() { super.onDestroy(); if (iconView != null) wm.removeView(iconView); if (isMenuOpen) wm.removeView(menuView); }
           }
           EOF
-
       - name: Build APK
-        run: gradle assembleDebug
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: app-debug
-          path: app/build/outputs/apk/debug/app-debug.apk
+        script: |
+          cd $CM_BUILD_DIR
+          gradle assembleDebug
+    artifacts:
+      - app/build/outputs/apk/debug/app-debug.apk
