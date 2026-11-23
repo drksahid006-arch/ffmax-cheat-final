@@ -54,21 +54,36 @@ workflows:
           add_library(cheat SHARED injector.cpp)
           target_link_libraries(cheat log android dl)
           EOF
+          
           cat << 'EOF' > build.gradle
-          buildscript { repositories { google(); mavenCentral() } dependencies { classpath 'com.android.tools.build:gradle:8.2.0' } }
+          buildscript {
+              repositories { google(); mavenCentral() }
+              dependencies { classpath 'com.android.tools.build:gradle:8.2.0' }
+          }
           allprojects { repositories { google(); mavenCentral() } }
           EOF
+          
           cat << 'EOF' > settings.gradle
           rootProject.name = "ffmax_panel"
           include ':app'
           EOF
+          
           cat << 'EOF' > app/build.gradle
           plugins { id 'com.android.application' }
           android { 
               namespace 'com.panel.ffmax'
               compileSdk 33
-              defaultConfig { applicationId "com.panel.ffmax"; minSdk 24; targetSdk 33; ndk { abiFilters 'arm64-v8a' }; externalNativeBuild { cmake { arguments '-DANDROID_STL=c++_shared' } } } 
+              defaultConfig { 
+                  applicationId "com.panel.ffmax"
+                  minSdk 24
+                  targetSdk 33 
+                  ndk { abiFilters 'arm64-v8a' }
+                  externalNativeBuild { cmake { arguments '-DANDROID_STL=c++_shared' } }
+              } 
               externalNativeBuild { cmake { path 'src/main/jni/CMakeLists.txt' } }
+          }
+          dependencies {
+              implementation 'androidx.appcompat:appcompat:1.6.1'
           }
           EOF
           
@@ -118,7 +133,6 @@ workflows:
                   super.onCreate();
                   wm = (WindowManager) getSystemService(WINDOW_SERVICE);
                   
-                  // 1. Create the Floating Icon
                   iconView = new ImageView(this);
                   iconView.setImageResource(android.R.drawable.ic_menu_manage);
                   iconView.setBackgroundColor(Color.parseColor("#80000000"));
@@ -127,7 +141,6 @@ workflows:
                   iconParams.gravity = Gravity.TOP | Gravity.START; iconParams.x = 200; iconParams.y = 300;
                   wm.addView(iconView, iconParams);
 
-                  // 2. Create the Menu
                   menuView = new LinearLayout(this); menuView.setOrientation(LinearLayout.VERTICAL); menuView.setBackgroundColor(Color.parseColor("#CC000000")); menuView.setPadding(30, 30, 30, 30);
                   TextView title = new TextView(this); title.setText("PRO MOD MENU"); title.setTextColor(Color.CYAN); menuView.addView(title);
                   CheckBox esp = new CheckBox(this); esp.setText("ESP Box"); esp.setTextColor(Color.WHITE); esp.setOnCheckedChangeListener((v, c) -> toggleESP(c)); menuView.addView(esp);
@@ -135,7 +148,6 @@ workflows:
                   menuParams = new WindowManager.LayoutParams(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY, WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE, PixelFormat.TRANSLUCENT);
                   menuParams.gravity = Gravity.TOP | Gravity.START; menuParams.x = 200; menuParams.y = 450;
 
-                  // 3. Handle Icon Drag and Click
                   iconView.setOnTouchListener(new View.OnTouchListener() {
                       private int initialX, initialY; private float initialTouchX, initialTouchY;
                       @Override public boolean onTouch(View v, MotionEvent event) {
