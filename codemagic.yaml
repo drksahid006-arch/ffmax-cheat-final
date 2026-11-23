@@ -9,7 +9,6 @@ workflows:
       - name: Create Android Project Files
         script: |
           mkdir -p app/src/main/java/com/panel/ffmax
-          mkdir -p app/src/main/res/layout
           mkdir -p app/src/main/jni
           
           cat << 'EOF' > app/src/main/jni/injector.cpp
@@ -33,6 +32,10 @@ workflows:
               uintptr_t TEAM_OFFSET = 0x2B0;
               uintptr_t HEAD_BONE = 0x3A4;
           }
+
+          // Menu States
+          bool enableESP = false;
+          bool enableAimbot = false;
 
           uintptr_t GetModuleBase(const char* moduleName) {
               FILE* file = fopen("/proc/self/maps", "r");
@@ -65,25 +68,43 @@ workflows:
               return true;
           }
 
+          // JNI Functions to toggle features from Java UI
+          extern "C" JNIEXPORT void JNICALL
+          Java_com_panel_ffmax_FloatingService_toggleESP(JNIEnv* env, jobject thiz, jboolean state) {
+              enableESP = state;
+              LOGI("ESP Toggled: %d", enableESP);
+          }
+
+          extern "C" JNIEXPORT void JNICALL
+          Java_com_panel_ffmax_FloatingService_toggleAimbot(JNIEnv* env, jobject thiz, jboolean state) {
+              enableAimbot = state;
+              LOGI("Aimbot Toggled: %d", enableAimbot);
+          }
+
           extern "C" JNIEXPORT jint JNICALL
           Java_com_panel_ffmax_MainActivity_inject(JNIEnv* env, jobject thiz, jstring pkg) {
               offsets::IL2CPP_BASE = GetModuleBase("libil2cpp.so");
               if (!offsets::IL2CPP_BASE) return -1;
               
               while (true) {
-                  uintptr_t entityList = ReadMemory<uintptr_t>(offsets::IL2CPP_BASE + offsets::ENTITY_LIST);
-                  if (entityList != 0) {
-                      float viewMatrix[16];
-                      memcpy(viewMatrix, (void*)(offsets::IL2CPP_BASE + offsets::VIEW_MATRIX), sizeof(viewMatrix));
-                      
-                      for (int i = 0; i < 50; i++) {
-                          uintptr_t entity = entityList + (i * offsets::ENTITY_STRIDE);
-                          int health = ReadMemory<int>(entity + offsets::HEALTH_OFFSET);
-                          if (health > 0 && health < 1000) {
-                              Vec3 pos = ReadMemory<Vec3>(entity + offsets::HEAD_BONE);
-                              float sx, sy;
-                              if (WorldToScreen(pos, viewMatrix, 1080, 2400, sx, sy)) {
-                                  LOGI("Enemy found at X: %f, Y: %f", sx, sy);
+                  if (enableESP || enableAimbot) {
+                      uintptr_t entityList = ReadMemory<uintptr_t>(offsets::IL2CPP_BASE + offsets::ENTITY_LIST);
+                      if (entityList != 0) {
+                          float viewMatrix[16];
+                          memcpy(viewMatrix, (void*)(offsets::IL2CPP_BASE + offsets::VIEW_MATRIX), sizeof(viewMatrix));
+                          
+                          for (int i = 0; i < 50; i++) {
+                              uintptr_t entity = entityList + (i * offsets::ENTITY_STRIDE);
+                              int health = ReadMemory<int>(entity + offsets::HEALTH_OFFSET);
+                              if (health > 0 && health < 1000) {
+                                  Vec3 pos = ReadMemory<Vec3>(entity + offsets::HEAD_BONE);
+                                  float sx, sy;
+                                  if (WorldToScreen(pos, viewMatrix, 1080, 2400, sx, sy)) {
+                                      if (enableESP) {
+                                          // Logs coordinate if ESP is on
+                                          LOGI("ESP: Enemy at %f, %f", sx, sy);
+                                      }
+                                  }
                               }
                           }
                       }
@@ -132,7 +153,6 @@ workflows:
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
               <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
-              <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"/>
               <application android:label="FF MAX PRO">
                   <activity android:name=".MainActivity" android:exported="true">
                       <intent-filter>
@@ -152,7 +172,6 @@ workflows:
           import android.net.Uri;
           import android.os.Bundle;
           import android.provider.Settings;
-          import android.widget.TextView;
           import android.widget.Button;
           import android.widget.LinearLayout;
           import android.graphics.Color;
@@ -169,31 +188,15 @@ workflows:
                   layout.setPadding(50, 50, 50, 50);
                   layout.setBackgroundColor(Color.parseColor("#121212"));
 
-                  TextView title = new TextView(this);
-                  title.setText("FF MAX PREMIUM DASHBOARD");
-                  title.setTextColor(Color.CYAN);
-                  title.setTextSize(22);
-                  
-                  Button openGame = new Button(this);
-                  openGame.setText("OPEN FREE FIRE");
-                  openGame.setOnClickListener(v -> {
-                      Intent launchIntent = getPackageManager().getLaunchIntentForPackage("com.dts.freefiremax");
-                      if (launchIntent != null) startActivity(launchIntent);
-                  });
-
                   Button startMenu = new Button(this);
                   startMenu.setText("START FLOATING MENU");
                   startMenu.setOnClickListener(v -> {
                       if (!Settings.canDrawOverlays(MainActivity.this)) {
-                          Intent intent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + getPackageName()));
-                          startActivity(intent);
+                          startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + getPackageName())));
                       } else {
                           startService(new Intent(MainActivity.this, FloatingService.class));
                       }
                   });
-
-                  layout.addView(title);
-                  layout.addView(openGame);
                   layout.addView(startMenu);
                   setContentView(layout);
               }
@@ -214,6 +217,10 @@ workflows:
           import android.widget.TextView;
 
           public class FloatingService extends Service {
+              static { System.loadLibrary("cheat"); }
+              public native void toggleESP(boolean state);
+              public native void toggleAimbot(boolean state);
+              
               private WindowManager windowManager;
               private LinearLayout floatingView;
 
@@ -229,21 +236,14 @@ workflows:
                   floatingView.setBackgroundColor(Color.parseColor("#CC000000"));
                   floatingView.setPadding(30, 30, 30, 30);
 
-                  TextView title = new TextView(this);
-                  title.setText("FF MAX MOD MENU");
-                  title.setTextColor(Color.GREEN);
-                  title.setTextSize(18);
+                  CheckBox espLine = new CheckBox(this); espLine.setText("ESP Box"); espLine.setTextColor(Color.WHITE);
+                  espLine.setOnCheckedChangeListener((v, isChecked) -> toggleESP(isChecked));
 
-                  CheckBox espLine = new CheckBox(this); espLine.setText("ESP Line"); espLine.setTextColor(Color.WHITE);
-                  CheckBox espBox = new CheckBox(this); espBox.setText("ESP Box"); espBox.setTextColor(Color.WHITE);
                   CheckBox aimbot = new CheckBox(this); aimbot.setText("Aimbot"); aimbot.setTextColor(Color.WHITE);
-                  CheckBox autoHead = new CheckBox(this); autoHead.setText("Auto Headshot"); autoHead.setTextColor(Color.WHITE);
+                  aimbot.setOnCheckedChangeListener((v, isChecked) -> toggleAimbot(isChecked));
 
-                  floatingView.addView(title);
                   floatingView.addView(espLine);
-                  floatingView.addView(espBox);
                   floatingView.addView(aimbot);
-                  floatingView.addView(autoHead);
 
                   WindowManager.LayoutParams params = new WindowManager.LayoutParams(
                           WindowManager.LayoutParams.WRAP_CONTENT,
@@ -252,8 +252,7 @@ workflows:
                           WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
                           PixelFormat.TRANSLUCENT);
                   params.gravity = Gravity.TOP | Gravity.START;
-                  params.x = 100;
-                  params.y = 100;
+                  params.x = 100; params.y = 100;
 
                   windowManager.addView(floatingView, params);
               }
