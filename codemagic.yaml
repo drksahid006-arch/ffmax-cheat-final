@@ -14,12 +14,93 @@ workflows:
           cat << 'EOF' > app/src/main/jni/injector.cpp
           #include <jni.h>
           #include <unistd.h>
-          #include <sys/ptrace.h>
           #include <android/log.h>
-          extern "C" JNIEXPORT jint JNICALL Java_com_panel_ffmax_MainActivity_inject(JNIEnv* env, jobject thiz, jstring pkg) {
-              __android_log_print(ANDROID_LOG_INFO, "FFMX", "Injector loaded");
-              return 0;
+          #include <cstring>
+          #include <cstdio>
+          #include <cmath>
+
+          #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "FFMX", __VA_ARGS__)
+
+          struct Vec3 { float x, y, z; };
+
+          namespace offsets {
+              uintptr_t IL2CPP_BASE = 0;
+              uintptr_t ENTITY_LIST = 0x9C8E14C;
+              uintptr_t ENTITY_STRIDE = 0x10;
+              uintptr_t VIEW_MATRIX = 0x968CB2F0;
+              uintptr_t HEALTH_OFFSET = 0x2A8;
+              uintptr_t TEAM_OFFSET = 0x2B0;
+              uintptr_t HEAD_BONE = 0x3A4;
           }
+
+          uintptr_t GetModuleBase(const char* moduleName) {
+              FILE* file = fopen("/proc/self/maps", "r");
+              if (!file) return 0;
+              char line[512];
+              uintptr_t base = 0;
+              while (fgets(line, sizeof(line), file)) {
+                  if (strstr(line, moduleName)) {
+                      base = strtoull(line, nullptr, 16);
+                      break;
+                  }
+              }
+              fclose(file);
+              return base;
+          }
+
+          template <typename T>
+          T ReadMemory(uintptr_t addr) {
+              if (addr == 0) return T{};
+              return *(T*)addr;
+          }
+
+          bool WorldToScreen(const Vec3& w, const float* m, int sw, int sh, float& sx, float& sy) {
+              float cx = w.x*m[0] + w.y*m[4] + w.z*m[8]  + m[12];
+              float cy = w.x*m[1] + w.y*m[5] + w.z*m[9]  + m[13];
+              float cw = w.x*m[3] + w.y*m[7] + w.z*m[11] + m[15];
+              if (cw < 0.1f) return false;
+              sx = (sw * 0.5f) * (1.0f + cx / cw);
+              sy = (sh * 0.5f) * (1.0f - cy / cw);
+              return true;
+          }
+
+          extern "C" JNIEXPORT jint JNICALL
+          Java_com_panel_ffmax_MainActivity_inject(JNIEnv* env, jobject thiz, jstring pkg) {
+              offsets::IL2CPP_BASE = GetModuleBase("libil2cpp.so");
+              if (!offsets::IL2CPP_BASE) {
+                  LOGI("Game is not running!");
+                  return -1;
+              }
+              LOGI("Engine started. Base: 0x%lx", offsets::IL2CPP_BASE);
+              
+              while (true) {
+                  uintptr_t entityList = ReadMemory<uintptr_t>(offsets::IL2CPP_BASE + offsets::ENTITY_LIST);
+                  if (entityList != 0) {
+                      float viewMatrix[16];
+                      memcpy(viewMatrix, (void*)(offsets::IL2CPP_BASE + offsets::VIEW_MATRIX), sizeof(viewMatrix));
+                      
+                      for (int i = 0; i < 50; i++) {
+                          uintptr_t entity = entityList + (i * offsets::ENTITY_STRIDE);
+                          int health = ReadMemory<int>(entity + offsets::HEALTH_OFFSET);
+                          if (health > 0 && health < 1000) {
+                              Vec3 pos = ReadMemory<Vec3>(entity + offsets::HEAD_BONE);
+                              float sx, sy;
+                              if (WorldToScreen(pos, viewMatrix, 1080, 2400, sx, sy)) {
+                                  LOGI("Enemy found at X: %f, Y: %f", sx, sy);
+                              }
+                          }
+                      }
+                  }
+                  usleep(10000);
+              }
+          }
+          EOF
+
+          cat << 'EOF' > app/src/main/jni/CMakeLists.txt
+          cmake_minimum_required(VERSION 3.22.1)
+          project(cheat CXX)
+          add_library(cheat SHARED injector.cpp)
+          target_link_libraries(cheat log android dl)
           EOF
 
           cat << 'EOF' > build.gradle
@@ -33,7 +114,6 @@ workflows:
           rootProject.name = "ffmax_panel"
           include ':app'
           EOF
-          
           cat << 'EOF' > app/build.gradle
           plugins { id 'com.android.application' }
           android { 
@@ -49,7 +129,7 @@ workflows:
               externalNativeBuild { cmake { path 'src/main/jni/CMakeLists.txt' } }
           }
           EOF
-
+          
           cat << 'EOF' > app/src/main/AndroidManifest.xml
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
@@ -72,7 +152,6 @@ workflows:
           import android.widget.Button;
           import android.widget.LinearLayout;
           import android.widget.CheckBox;
-          import android.widget.SeekBar;
           import android.graphics.Color;
 
           public class MainActivity extends Activity {
@@ -82,60 +161,32 @@ workflows:
               @Override
               protected void onCreate(Bundle savedInstanceState) {
                   super.onCreate(savedInstanceState);
-                  
                   LinearLayout layout = new LinearLayout(this);
                   layout.setOrientation(LinearLayout.VERTICAL);
                   layout.setPadding(50, 50, 50, 50);
                   layout.setBackgroundColor(Color.parseColor("#121212"));
 
                   TextView title = new TextView(this);
-                  title.setText("FF MAX PROFESSIONAL PANEL");
+                  title.setText("FF MAX PRO PANEL");
                   title.setTextColor(Color.CYAN);
                   title.setTextSize(22);
-                  title.setPadding(0, 0, 0, 30);
                   
                   Button startBtn = new Button(this);
                   startBtn.setText("START INJECTOR");
                   startBtn.setOnClickListener(v -> inject("com.dts.freefiremax"));
-
+                  
                   CheckBox espBox = new CheckBox(this);
-                  espBox.setText("ESP Box (Line, Box, Name)");
+                  espBox.setText("ESP BOX");
                   espBox.setTextColor(Color.WHITE);
                   
-                  CheckBox espLine = new CheckBox(this);
-                  espLine.setText("ESP Line");
-                  espLine.setTextColor(Color.WHITE);
-                  
                   CheckBox aimbot = new CheckBox(this);
-                  aimbot.setText("Aimbot / Aimlock");
+                  aimbot.setText("AIMBOT");
                   aimbot.setTextColor(Color.WHITE);
-                  
-                  CheckBox autoHead = new CheckBox(this);
-                  autoHead.setText("Auto Headshot");
-                  autoHead.setTextColor(Color.WHITE);
-                  
-                  CheckBox flyHack = new CheckBox(this);
-                  flyHack.setText("Fly Hack");
-                  flyHack.setTextColor(Color.WHITE);
-                  
-                  TextView fovLabel = new TextView(this);
-                  fovLabel.setText("Aim FOV: 120");
-                  fovLabel.setTextColor(Color.WHITE);
-                  
-                  SeekBar fovBar = new SeekBar(this);
-                  fovBar.setMax(200);
-                  fovBar.setProgress(120);
 
                   layout.addView(title);
                   layout.addView(startBtn);
                   layout.addView(espBox);
-                  layout.addView(espLine);
                   layout.addView(aimbot);
-                  layout.addView(autoHead);
-                  layout.addView(flyHack);
-                  layout.addView(fovLabel);
-                  layout.addView(fovBar);
-
                   setContentView(layout);
               }
           }
