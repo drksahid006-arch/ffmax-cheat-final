@@ -1,6 +1,6 @@
 workflows:
   android-workflow:
-    name: FF MAX Build
+    name: FF MAX Aimbot Build
     instance_type: mac_mini_m2
     max_build_duration: 60
     environment:
@@ -18,24 +18,21 @@ workflows:
           #include <cstring>
           #include <cstdio>
           #include <cmath>
-          
+          #include <sys/mman.h>
+
           #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "FFMX", __VA_ARGS__)
 
           struct Vec3 { float x, y, z; };
 
           namespace offsets {
               uintptr_t IL2CPP_BASE = 0;
-              // Guessed Offsets (Replace with your dump.cs offsets)
-              uintptr_t LOCAL_PLAYER = 0x9C8E150;
-              uintptr_t ENTITY_LIST = 0x9C8E14C;
-              uintptr_t ENTITY_STRIDE = 0x10;
-              uintptr_t VIEW_MATRIX = 0x968CB2F0;
+              uintptr_t ENTITY_LIST = 0;
+              uintptr_t LOCAL_PLAYER = 0;
+              uintptr_t VIEW_MATRIX = 0;
+              uintptr_t ENTITY_STRIDE = 0x10; 
               uintptr_t HEALTH_OFFSET = 0x2A8;
               uintptr_t TEAM_OFFSET = 0x2B0;
-              
-              // OB55 Aimbot Bone Offsets from your image
               uintptr_t HEAD_BONE = 0x49C; 
-              uintptr_t HIP_BONE = 0x4A0;
           }
 
           bool aimbotOn = false;
@@ -53,7 +50,6 @@ workflows:
           template <typename T> T Read(uintptr_t addr) { if(!addr) return T{}; return *(T*)addr; }
 
           void SetViewAngles(Vec3 angles) {
-              // Placeholder for ViewAngle memory write
           }
 
           Vec3 CalcAngle(Vec3 src, Vec3 dst) {
@@ -68,35 +64,65 @@ workflows:
               return angles;
           }
 
+          bool ScanAOB(uintptr_t base, size_t size) {
+              const char* pattern = "\xFF\xFF\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xA5\x43";
+              const char* mask = "xx????????????????????????????xx";
+              
+              uint8_t* data = (uint8_t*)base;
+              size_t patternLength = strlen(mask);
+
+              for (size_t i = 0; i < size - patternLength; ++i) {
+                  bool found = true;
+                  for (size_t j = 0; j < patternLength; ++j) {
+                      if (mask[j] == 'x' && data[i + j] != (uint8_t)pattern[j]) {
+                          found = false;
+                          break;
+                      }
+                  }
+                  if (found) {
+                      LOGI("\033[31mAOB Found at address: 0x%lx\033[0m", (base + i));
+                      return true;
+                  }
+              }
+              return false;
+          }
+
           extern "C" JNIEXPORT void JNICALL Java_com_panel_ffmax_FloatingService_toggleAimbot(JNIEnv* env, jobject thiz, jboolean s) { aimbotOn = s; }
 
           extern "C" JNIEXPORT jint JNICALL Java_com_panel_ffmax_MainActivity_inject(JNIEnv* env, jobject thiz, jstring pkg) {
               offsets::IL2CPP_BASE = GetBase("libil2cpp.so");
-              if(!offsets::IL2CPP_BASE) return -1;
+              if(!offsets::IL2CPP_BASE) {
+                  LOGI("Error: libil2cpp.so not found.");
+                  return -1;
+              }
               
-              LOGI("Engine Started! Base: 0x%lx", offsets::IL2CPP_BASE);
+              LOGI("Engine Started. Base: 0x%lx", offsets::IL2CPP_BASE);
+
+              ScanAOB(offsets::IL2CPP_BASE, 0xFFFFFF);
 
               while(true) {
                   if(aimbotOn) {
-                      uintptr_t list = Read<uintptr_t>(offsets::IL2CPP_BASE + offsets::ENTITY_LIST);
-                      uintptr_t localPlayer = Read<uintptr_t>(offsets::IL2CPP_BASE + offsets::LOCAL_PLAYER);
-                      
-                      if(list != 0 && localPlayer != 0) {
-                          Vec3 localPos = Read<Vec3>(localPlayer + 0x100);
-                          int localTeam = Read<int>(localPlayer + offsets::TEAM_OFFSET);
+                      if(offsets::ENTITY_LIST != 0 && offsets::LOCAL_PLAYER != 0) {
+                          uintptr_t list = Read<uintptr_t>(offsets::IL2CPP_BASE + offsets::ENTITY_LIST);
+                          uintptr_t localPlayer = Read<uintptr_t>(offsets::IL2CPP_BASE + offsets::LOCAL_PLAYER);
+                          
+                          if(list != 0 && localPlayer != 0) {
+                              Vec3 localPos = Read<Vec3>(localPlayer + 0x100); 
+                              int localTeam = Read<int>(localPlayer + offsets::TEAM_OFFSET);
 
-                          for(int i=0; i<50; i++) {
-                              uintptr_t entity = list + (i * offsets::ENTITY_STRIDE);
-                              int health = Read<int>(entity + offsets::HEALTH_OFFSET);
-                              int team = Read<int>(entity + offsets::TEAM_OFFSET);
-                              
-                              if(health > 0 && health < 1000 && team != localTeam) {
-                                  Vec3 headPos = Read<Vec3>(entity + offsets::HEAD_BONE);
-                                  Vec3 aimAngles = CalcAngle(localPos, headPos);
+                              for(int i=0; i<50; i++) {
+                                  uintptr_t entity = list + (i * offsets::ENTITY_STRIDE);
+                                  int health = Read<int>(entity + offsets::HEALTH_OFFSET);
+                                  int team = Read<int>(entity + offsets::TEAM_OFFSET);
                                   
-                                  SetViewAngles(aimAngles);
-                                  LOGI("Aimbot Locking: Pitch %f, Yaw %f", aimAngles.x, aimAngles.y);
-                                  break; 
+                                  if(health > 0 && health < 1000 && team != localTeam) {
+                                      Vec3 headPos = Read<Vec3>(entity + offsets::HEAD_BONE);
+                                      Vec3 aimAngles = CalcAngle(localPos, headPos);
+                                      
+                                      SetViewAngles(aimAngles);
+                                      LOGI("\033[31mAimbot Locking: Pitch %f, Yaw %f\033[0m", aimAngles.x, aimAngles.y);
+                                      break; 
+                                  }
                               }
                           }
                       }
